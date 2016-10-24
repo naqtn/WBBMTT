@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>WBBMTT: Web Browser Based Multi-Touch screen Test tools</title>
+
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body>
+
+<h1>WBBMTT: Web Browser Based Multi-Touch screen Test</h1>
+
+<h2>Touch Tester</h2>
+
+<a href="wbbmtt_0.png"><img src="wbbmtt_1.png" style="float: left; margin-right: 2em;"></a>
+<p>
+<a href="touch-tester.html">Start</a>  (with default setup)
+
+<p>
+<form action="touch-tester.html" style="background: lavenderblush">
+Launch with option:
+<input type="submit" value="Start">
+<br>
+Mark size: [
+<input type="radio" name="markSizeScale" value="2.0">huge
+<input type="radio" name="markSizeScale" value="1.2">large
+<input type="radio" name="markSizeScale" value="1.0" checked>default
+<input type="radio" name="markSizeScale" value="0.8">small
+<input type="radio" name="markSizeScale" value="0.3">tiny
+]<br>
+
+Background color: [
+<input type="radio" name="backGroundColor" value="black" checked>black
+<input type="radio" name="backGroundColor" value="white" >white
+<input type="radio" name="backGroundColor" value="green" >green
+(<input type="radio" name="backGroundColor" value="">transparent for debug)]
+<br>
+
+<input type="checkbox" name="shakeClearMode" >Shake clear mode
+<input type="checkbox" name="gridSpan" value="100">Show grid
+<input type="checkbox" name="hideTouchProperties">Hide touch properties
+<input type="checkbox" name="showTouchRadius">Show touch radius
+<input type="checkbox" name="noPreventDefault">Enable default touch operation
+<br>
+<input type="reset" value="Reset">
+</form>
+
+<hr>
+This tool WBBMTT is yet another multi-touch screen test program implemented for HTML5 Web browser.
+
+Android application YAMTT (Yet Another MultiTouch Test,
+<a href="https://play.google.com/store/apps/details?id=com.rn.yamtt">Google Play Store</a>,
+<a href="http://android.rzeszow.net/?p=178">dev blog</a> )
+influences for basic functionality and graphic design of WBBMTT.
+Thanks for good tool. I want iOS equivalent of that. So I write this.
+
+WBBMTT is hosted <a href="https://github.com/naqtn/WBBMTT">at github</a>.
+</body>
+</html>

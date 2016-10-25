@@ -4,9 +4,57 @@
  * by naqtn (https://github.com/naqtn)
  */
 
-// WebModule pattern:
+// using WebModule pattern:
 // https://github.com/uupaa/WebModule
 // http://qiita.com/kaiinui/items/22a75d2adc56a40da7b7
+(function(global) {
+    "use strict;"
+
+    // Function ------------------------------------------------
+
+    // Make bridging function to use "this" instance from system callback.
+    // original "this" will placed as 1st argument for callbackMethod
+    function methodAdapter(thisForCallback, callbackMethod) {
+        var _thisForCallback = thisForCallback;
+        var _callbackMethod = callbackMethod;
+        return function() {
+            var args = [this];
+            for (var i = 0; i < arguments.length; ++i) {
+                args[i + 1] = arguments[i];
+            }
+            _callbackMethod.apply(_thisForCallback, args);
+        }
+    };
+
+    // Optimize (or limit) frequent function call.
+    function debounce(func, wait) {
+        var timeout;
+        var orgThis;
+        var args;
+        function later() {
+            timeout = 0;
+            func.apply(orgThis, args);
+        };
+        return function() {
+            orgThis = this;
+            args = arguments;
+            if (timeout != 0) {
+                clearTimeout(timeout);
+            }
+            timeout = setTimeout(later, wait);
+        };
+    };
+
+    // Exports ----------------------------------------------
+    if ("process" in global) {
+        module["exports"] = methodAdapter;
+        module["exports"] = debounce;
+    }
+    global["methodAdapter"] = methodAdapter;
+    global["debounce"] = debounce;
+
+})((this || 0).self || global);
+
 (function(global) {
     "use strict;"
 
@@ -16,10 +64,12 @@
     // Class ------------------------------------------------
     function Wbbmtt() { // constructor
         this.query = decodeQueryString();
+
         var markSizeScale = Number(queryValue(this.query, "markSizeScale", 1.0));
         this.markRadius1 = 22 * markSizeScale;
         this.markRadius2 = 14 * markSizeScale;
         this.mark2Width = 6 * markSizeScale;
+
         this.gridSpan = Number(queryValue(this.query, "gridSpan", -1));
         this.backGroundColor = queryValue(this.query, "backGroundColor", "black");
         this.preventDefault = !queryValueCheckbox(this.query, "noPreventDefault", false);
@@ -29,7 +79,9 @@
 
         this.idleMessage = "Touch Screen Tester (WBBMTT)";
         this._trackingTouches = [];
-        this._resizeTimeoutID = 0;
+        if (PC_DEBUG) {
+            this.keyFuncMap = {};
+        }
     };
 
     // Header -----------------------------------------------
@@ -37,12 +89,15 @@
     Wbbmtt["prototype"]["start"] = Wbbmtt_start;
     // private
     Wbbmtt["prototype"]["_touchHandler"] = Wbbmtt__touchHandler;
-    Wbbmtt["prototype"]["_clickHandler"] = Wbbmtt__clickHandler;
     Wbbmtt["prototype"]["_drawTouches"] = Wbbmtt__drawTouches;
     Wbbmtt["prototype"]["_drawTouchPoint"] = Wbbmtt__drawTouchPoint;
     Wbbmtt["prototype"]["_devicemotionHandler"] = Wbbmtt__devicemotionHandler;
     Wbbmtt["prototype"]["_resizeCanvasHandler"] = Wbbmtt__resizeCanvasHandler;
     Wbbmtt["prototype"]["_resizeCanvas"] = Wbbmtt__resizeCanvas;
+    if (PC_DEBUG) {
+        Wbbmtt["prototype"]["_clickHandler"] = Wbbmtt__clickHandler;
+        Wbbmtt["prototype"]["_keydownHandler"] = Wbbmtt__keydownHandler;
+    }
 
     // Implementation ---------------------------------------
     function debugPrintHtml(s) {
@@ -200,18 +255,10 @@
     }
 
     var RESIZE_DELAY = 300;
-    function Wbbmtt__resizeCanvasHandler() {
-        // Optimize resize request because resizing canvas is heavy operation.
-
-        if (this._resizeTimeoutID != 0) {
-            window.clearTimeout(this._resizeTimeoutID);
-        }
-
-        var self = this;
-        this._resizeCanvasHandlerFunc2 = this._resizeCanvasHandlerFunc2 || function(evt) {
-            self._resizeCanvas(evt);
-        };
-        this._resizeTimeoutID = window.setTimeout(this._resizeCanvasHandlerFunc2, RESIZE_DELAY);
+    function Wbbmtt__resizeCanvasHandler(orgThis) {
+        this._resizeCanvasHandler2 = this._resizeCanvasHandler2
+                || debounce(this._resizeCanvas, RESIZE_DELAY);
+        this._resizeCanvasHandler2();
     }
 
     function Wbbmtt__resizeCanvas() {
@@ -266,7 +313,7 @@
 
     }
 
-    function Wbbmtt__touchHandler(event) {
+    function Wbbmtt__touchHandler(orgThis, event) {
 
         if (this.preventDefault) {
             event.preventDefault();
@@ -294,12 +341,12 @@
                     break;
                 case "touchend" : // fall through
                 case "touchcancel" :
-                    if (this.shakeClearMode) {
-                        break;
-                    }
                     var idx = findTouch(this._trackingTouches, touch);
                     if (idx < 0) {
-                        throw new Error("Not found that identifier for  end or cancel event.");
+                        throw new Error("Not found that identifier for end or cancel event.");
+                    } else if (this.shakeClearMode) {
+                        // Modify identifier to prepare for reusing identifier by the OS.
+                        this._trackingTouches[idx].identifier = null;
                     } else {
                         this._trackingTouches[idx] = null;
                     }
@@ -315,8 +362,17 @@
         return true;
     }
 
+    // //////////////////
     // for debug
-    function Wbbmtt__clickHandler(event) {
+    function TouchEventSym(type) {
+        this.preventDefault = TouchEventSym_nullFunc;
+        this.type = type;
+    }
+
+    function TouchEventSym_nullFunc() {
+    }
+
+    function Wbbmtt__clickHandler(orgThis, event) {
         var touches = [{
             "identifier" : 0,
             "pageX" : 200,
@@ -331,13 +387,24 @@
             "screenY" : event.screenY
         }];
 
-        this._trackingTouches = touches;
-        this._drawTouches();
+        var sev = new TouchEventSym("touchstart");
+        sev.touches = touches;
+        sev.changedTouches = touches;
+        this._touchHandler(orgThis, sev);
     }
+
+    function Wbbmtt__keydownHandler(orgThis, event) {
+        var func = this.keyFuncMap[event.key];
+        if (func) {
+            func.apply(this, event);
+        }
+    }
+    // end for debug
+    // //////////////////
 
     // var acc2Max = 0;
     var CLEAR_ACCEL_SQ_THRESHOLD = 300;
-    function Wbbmtt__devicemotionHandler(event) {
+    function Wbbmtt__devicemotionHandler(orgThis, event) {
         var x = event.acceleration.x;
         var y = event.acceleration.y;
         var z = event.acceleration.z;
@@ -348,50 +415,49 @@
         // debugPrintHtml("<p>acc2Max = " + sq);
         // }
         if (this.shakeClearMode && (CLEAR_ACCEL_SQ_THRESHOLD < sq)) {
-            this._trackingTouches = [];
-            this._drawTouches();
+            this._devicemotionHandler2 = this._devicemotionHandler2
+                    || debounce(Wbbmtt__clearTouches, 100);
+            this._devicemotionHandler2();
         }
     }
 
+    function Wbbmtt__clearTouches() {
+        this._trackingTouches = [];
+        this._drawTouches();
+    }
+
     function Wbbmtt_start() {
-        // Make bridging functions here to use "this" instance from callback flow.
-        // (It might "too much implementation".
-        // In this application, multiple calling start() is not normally and
-        // removing callback is not necessary.)
-
-        var self = this;
-
-        this._touchHandlerFunc = this._touchHandlerFunc || function(evt) {
-            self._touchHandler(evt);
-        };
+        this._touchHandlerFunc = this._touchHandlerFunc || methodAdapter(this, this._touchHandler);
         document.addEventListener("touchstart", this._touchHandlerFunc, false);
         document.addEventListener("touchend", this._touchHandlerFunc, false);
         document.addEventListener("touchcancel", this._touchHandlerFunc, false);
         document.addEventListener("touchmove", this._touchHandlerFunc, false);
 
         if (this.shakeClearMode) {
-            this._devicemotionHandlerFunc = this._devicemotionHandlerFunc || function(evt) {
-                self._devicemotionHandler(evt);
-            };
+            this._devicemotionHandlerFunc = this._devicemotionHandlerFunc
+                    || methodAdapter(this, this._devicemotionHandler);
             window.addEventListener("devicemotion", this._devicemotionHandlerFunc);
         }
 
-        this._resizeCanvasHandlerFunc = this._resizeCanvasHandlerFunc || function(evt) {
-            self._resizeCanvasHandler(evt);
-        };
+        this._resizeCanvasHandlerFunc = this._resizeCanvasHandlerFunc
+                || methodAdapter(this, this._resizeCanvasHandler);
         window.addEventListener("resize", this._resizeCanvasHandlerFunc);
-        this._resizeCanvasHandler(null);
+        // Adjust canvas for now
+        this._resizeCanvasHandler(this);
 
         if (this.backGroundColor) {
-            // overwrite body background dynamically for smooth transition when device orientation is changed
+            // overwrite body background dynamically for smooth transition when device orientation
+            // is changed
             document.body.style.background = this.backGroundColor;
         }
 
         if (PC_DEBUG) {
-            this._clickHandlerFunc = this._clickHandlerFunc || function(evt) {
-                self._clickHandler(evt);
-            };
+            this._clickHandlerFunc = this._clickHandlerFunc
+                    || methodAdapter(this, this._clickHandler);
             document.addEventListener("click", this._clickHandlerFunc, false);
+            this._keydownHandlerFunc = this._keydownHandlerFunc
+                    || methodAdapter(this, this._keydownHandler);
+            document.addEventListener("keydown", this._keydownHandlerFunc, false);
         }
     }
 

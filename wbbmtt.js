@@ -55,6 +55,95 @@
 
 })((this || 0).self || global);
 
+
+(function(global) {
+    "use strict;"
+
+    // Class ------------------------------------------------
+    function Divlog(id, startImmediate) {
+        this.elementId = id || "Divlog_div";
+        if ((startImmediate == undefined) || (startImmediate == true)) {
+            this.start();
+        }
+    };
+
+    // Header -----------------------------------------------
+    Divlog["prototype"]["printHTML"] = Divlog_printHTML; // Divlog#printHTML(s:String):void
+    Divlog["prototype"]["consoleLog"] = Divlog_consoleLog; // Divlog#consoleLog(s:String):void
+    Divlog["prototype"]["log"] = Divlog_log; // Divlog#log(s:String):void
+    Divlog["prototype"]["start"] = Divlog_start; // Divlog#start():void
+    Divlog["prototype"]["stop"] = Divlog_stop; // Divlog#stop():void
+    // property:
+    // elementId
+    // _consoleObjOrig
+    // _consoleLogOrig
+
+    // Implementation ---------------------------------------
+    function Divlog_printHTML(s) {
+        var element = document.getElementById(this.elementId);
+        if (element == null) {
+            element = document.createElement("div");
+            document.body.insertBefore(element, document.body.firstChild);
+            element.id = this.elementId;
+        }
+        element.insertAdjacentHTML("beforeend", s);
+        if (element.scrollTopMax) {
+            element.scrollTop = element.scrollTopMax;
+        }
+    }
+
+    function Divlog_consoleLog(s) {
+        if (this._consoleObjOrig && this._consoleLogOrig) {
+            this._consoleLogOrig.call(this._consoleObjOrig, s);
+        }
+    }
+
+    var escapeHtml_replacementTbl = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;'
+    };
+    
+    function escapeHtml_replacementFunc(match) {
+        return escapeHtml_replacementTbl[match] || match;
+    }
+    
+    function escapeHtml(s) {
+        return s.replace(/[&<>]/g, escapeHtml_replacementFunc);
+    }
+    
+    function Divlog_log(s) {
+        this.consoleLog(s);
+        this.printHTML("<p>" + escapeHtml(s));
+    }
+
+    function Divlog_start() {
+        this._consoleObjOrig = console;
+        this._consoleLogOrig = console ? console.log : undefined;
+        if (!console) {
+            console = {};
+        }
+        var self = this;
+        console.log = function(s) {
+            self.log(s);
+        };
+    }
+
+    function Divlog_stop() {
+        if (console) {
+            console.log = this._consoleLogOrig;
+        }
+    }
+
+    // Exports ----------------------------------------------
+    if ("process" in global) {
+        module["exports"] = Divlog;
+    }
+    global["Divlog"] = Divlog;
+
+})((this || 0).self || global);
+
+
 (function(global) {
     "use strict;"
 
@@ -73,11 +162,16 @@
         this.gridSpan = Number(queryValue(this.query, "gridSpan", -1));
         this.backGroundColor = queryValue(this.query, "backGroundColor", "black");
         this.preventDefault = !queryValueCheckbox(this.query, "noPreventDefault", false);
-        this.shakeClearMode = queryValueCheckbox(this.query, "shakeClearMode", false);
+
+        this.manualClearMode = queryValueCheckbox(this.query, "shakeClearMode", false);
+        this.useShakeOperation = this.manualClearMode;
+
         this.showTouchProperties = !queryValueCheckbox(this.query, "hideTouchProperties", false);
         this.showTouchRadius = queryValueCheckbox(this.query, "showTouchRadius", false);
 
         this.idleMessage = "Touch Screen Tester (WBBMTT)";
+        this.displayCanvasId = "touchDisplayCanvas";
+        this.touchListenElementId = this.displayCanvasId;
         this._trackingTouches = [];
         if (PC_DEBUG) {
             this.keyFuncMap = {};
@@ -100,15 +194,6 @@
     }
 
     // Implementation ---------------------------------------
-    function debugPrintHtml(s) {
-        var dbgmsg = document.getElementById("dbgmsg");
-        if (dbgmsg == null) {
-            dbgmsg = document.createElement("div");
-            document.body.insertBefore(dbgmsg, document.body.firstChild);
-        }
-        dbgmsg.insertAdjacentHTML('afterbegin', s);
-    }
-
     function decodeQueryString() {
         var obj = {};
         var keyvals = window.location.search.substring(1).split('&');
@@ -272,7 +357,7 @@
     }
 
     function Wbbmtt__drawTouches() {
-        var canvas = document.getElementById("touchDisplayCanvas");
+        var canvas = document.getElementById(this.displayCanvasId);
         if (!canvas.getContext) {
             return; // fallback for canvas-unsupported browser
         }
@@ -314,6 +399,7 @@
     }
 
     function Wbbmtt__touchHandler(orgThis, event) {
+        this.currentEvent = event; // for extensibility
 
         if (this.preventDefault) {
             event.preventDefault();
@@ -344,7 +430,7 @@
                     var idx = findTouch(this._trackingTouches, touch);
                     if (idx < 0) {
                         throw new Error("Not found that identifier for end or cancel event.");
-                    } else if (this.shakeClearMode) {
+                    } else if (this.manualClearMode) {
                         // Modify identifier to prepare for reusing identifier by the OS.
                         this._trackingTouches[idx].identifier = null;
                     } else {
@@ -359,6 +445,7 @@
 
         this._drawTouches();
 
+        this.currentEvent = null;
         return true;
     }
 
@@ -403,7 +490,7 @@
     // //////////////////
 
     // var acc2Max = 0;
-    var CLEAR_ACCEL_SQ_THRESHOLD = 300;
+    var ACCEL_SQ_THRESHOLD = 300;
     function Wbbmtt__devicemotionHandler(orgThis, event) {
         var x = event.acceleration.x;
         var y = event.acceleration.y;
@@ -412,9 +499,9 @@
         var sq = x * x + y * y + z * z;
         // if (acc2Max < sq) {
         // acc2Max = sq;
-        // debugPrintHtml("<p>acc2Max = " + sq);
+        // console.log("acc2Max = " + sq);
         // }
-        if (this.shakeClearMode && (CLEAR_ACCEL_SQ_THRESHOLD < sq)) {
+        if (this.useShakeOperation && (ACCEL_SQ_THRESHOLD < sq)) {
             this._devicemotionHandler2 = this._devicemotionHandler2
                     || debounce(Wbbmtt__clearTouches, 100);
             this._devicemotionHandler2();
@@ -427,13 +514,23 @@
     }
 
     function Wbbmtt_start() {
-        this._touchHandlerFunc = this._touchHandlerFunc || methodAdapter(this, this._touchHandler);
-        document.addEventListener("touchstart", this._touchHandlerFunc, false);
-        document.addEventListener("touchend", this._touchHandlerFunc, false);
-        document.addEventListener("touchcancel", this._touchHandlerFunc, false);
-        document.addEventListener("touchmove", this._touchHandlerFunc, false);
+        var touchElement;
+        if (this.touchListenElementId) {
+            touchElement = document.getElementById(this.touchListenElementId);
+            if (!touchElement) {
+                throw new Error("touchElement not found. id='" + this.touchListenElementId + "'");
+            }
+        } else {
+            touchElement = document;
+        }
 
-        if (this.shakeClearMode) {
+        this._touchHandlerFunc = this._touchHandlerFunc || methodAdapter(this, this._touchHandler);
+        touchElement.addEventListener("touchstart", this._touchHandlerFunc, false);
+        touchElement.addEventListener("touchend", this._touchHandlerFunc, false);
+        touchElement.addEventListener("touchcancel", this._touchHandlerFunc, false);
+        touchElement.addEventListener("touchmove", this._touchHandlerFunc, false);
+
+        if (this.useShakeOperation) {
             this._devicemotionHandlerFunc = this._devicemotionHandlerFunc
                     || methodAdapter(this, this._devicemotionHandler);
             window.addEventListener("devicemotion", this._devicemotionHandlerFunc);
